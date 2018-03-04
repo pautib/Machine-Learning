@@ -14,15 +14,14 @@ levels(Datatrain$Sex) <- c(0,1) # female = 0, male = 1
 levels(Datatrain$Embarked) <- c(0,1,2) # C = 0, Q = 1, S = 2
 Datatrain <- apply(X = data.frame(1,Datatrain), MARGIN = 2, function(x) as.numeric(x))
 as.matrix(Datatrain)
-Datatrain2 <- data.frame(Datatrain[,c(1,2)],scale(x = Datatrain[,-c(1,2)], center = T, scale = T))
+Training <- data.frame(Datatrain[,c(1,2)],scale(x = Datatrain[,-c(1,2)], center = T, scale = T))
 
 ###Data test
 
-Datatest <- data.frame(Outputtest,Datatest[,2:11])
 
 sapply(Datatest,function(x) sum(is.na(x)))
 
-Datatest <- subset(x = Datatest, select = c(2,3,5,6,7,8,10,12))
+Datatest <- subset(x = Datatest, select = c(2,4,5,6,7,9,11))
 
 Datatest$Age[is.na(Datatest$Age)] <- mean(x = Datatest$Age, na.rm=T)
 
@@ -32,21 +31,40 @@ levels(Datatest$Sex) <- c(0,1) # female = 0, male = 1
 levels(Datatest$Embarked) <- c(0,1,2) # C = 0, Q = 1, S = 2
 Datatest <- apply(X = data.frame(1,Datatest), MARGIN = 2, function(x) as.numeric(x))
 as.matrix(Datatrain)
-Datatest2 <- data.frame(Datatest[,c(1,2)],scale(x = Datatest[,-c(1,2)], center = T, scale = T))
-save(... = Datatrain2, Datatest2, file = "CleanData.R")
+Testset <- data.frame(Datatest[,1],scale(x = Datatest[,-1], center = T, scale = T))
+save(... = Training, Testset, file = "CleanData.RData")
 
 ### Cross-validation
-crosslabel <- sample(x = 1:dim(Datatrain2)[1], size = 177, replace = F)
-DataCross <- Datatrain2[crosslabel,]
-DataTrain <- Datatrain2[-crosslabel,]
+crosslabel <- sample(x = 1:dim(Training)[1], size = 177, replace = F)
+DataCross <- Training[crosslabel,]
+DataTrain <- Training[-crosslabel,]
 DataCross <- apply(X = DataCross, MARGIN = 2, function(x) as.numeric(x))
 
 ###MIA
-res <- LogisticReg_GD(X = DataTrain[,-2], Y = DataTrain[,2], theta =c(0,runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1)),lambda = 0, alpha = 1.21, max_iter = 1000, threshold = 0.0001)
-output <- Predict_GD(X = as.matrix(DataCross[,-2]), theta = res$theta, lambda = 0, compare = T, Y = as.matrix(DataCross[2]), algorithm = "glm")
-Titanic <- data.frame(Outputtest[,1],output)
+lambda <- seq(from = 0, to = 10, by = 0.3)
+alpha <- seq(from =0.2, to = 2, by = 0.1)
+Grid <- expand.grid(lambda,alpha)
+
+p <- qplot(main = "TrainError", xlab = "lambda", ylab = "J")
+
+err <- sapply(X = lambda, function(x){
+  res <- LogisticReg_GD(X = DataTrain[,-2], Y = DataTrain[,2], theta =c(0,runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1)),lambda = x, alpha = 1.5, max_iter = 400, threshold = 0.001)
+  crosserror <- J_logisticreg(X = DataCross[,-2], Y = DataCross[,2], theta = res$theta, lambda = 0)
+  return(c(res[[1]], crosserror))
+} )
+
+err <- t(err)
+p <- p + geom_point(mapping = aes(x = lambda , y = err[,1]), color = "green")
+p <- p +  geom_point(mapping = aes(x = lambda , y = err[,2]))
+
+res <- LogisticReg_GD(X = DataTrain[,-2], Y = DataTrain[,2], theta =c(0,runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1),runif(1,0,1)),lambda = 0, alpha = 1.5, max_iter = 400, threshold = 0.001)
+outputcross <- Predict_GD(X = DataCross[,-2], theta = res$theta, lambda = 0, compare = T, Y = DataCross[,2], algorithm = "glm")
+outputest <- Predict_GD(X = Testset, theta = res$theta, lambda = 0, compare = F, Y = NULL, algorithm = "glm")
+Titanic <- data.frame(Outputtest[,1],outputest)
 colnames(Titanic) <- c("Passenger Id", "Survived")
 write.table(x = Titanic, file = "Titanic.csv", sep = ",", row.names = F, col.names = c("PassengerId", "Survived"))
+
+
 ###GLM
 model <- glm(formula = Datatrain2[,2] ~ ., family = binomial(link = "logit"), data = Datatrain2[,-c(1,2)])
 out <- predict.glm(object = model, newdata = Datatest2[,-c(1,2)], type = "response")
